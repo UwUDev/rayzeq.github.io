@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Wplace Archive Viewer</title>
+	<style>
+		html {
+			overflow: hidden;
+		}
+
+		html,
+		body {
+			padding: 0;
+			margin: 0;
+			width: 100%;
+			height: 100%;
+		}
+
+		canvas {
+			image-rendering: pixelated;
+		}
+	</style>
+	<script type="module">
+		const cache = {};
+		async function get_chunk(x, y) {
+			const cached = cache[`${x}-${y}`];
+			if (cached === undefined) {
+				cache[`${x}-${y}`] = new Promise((resolve, reject) => {
+					const img = new Image();
+					img.addEventListener("load", () => {
+						cache[`${x}-${y}`] = img;
+						resolve(img);
+					});
+					img.src = `https://wplace-archive.lila.ws/${x}/${y}/2025_08_29_12.webp`;
+				});
+				return await cache[`${x}-${y}`];
+			} else if (cached instanceof Promise) {
+				return await cache[`${x}-${y}`];
+			} else {
+				return cached;
+			}
+		}
+
+		const canvas = document.getElementById("drawing_canvas");
+		canvas.width = window.innerWidth;
+		canvas.height = window.innerHeight;
+		const context = canvas.getContext("2d");
+		context.imageSmoothingEnabled = false;
+
+		const chunks = await(await fetch("https://wplace-archive.lila.ws/api/chunks")).json();
+
+		const x_sorted = chunks.map(x => x[0] * 1000).toSorted();
+		const y_sorted = chunks.map(x => x[1] * 1000).toSorted();
+		const start = [x_sorted[0], y_sorted[0]];
+		const end = [x_sorted[x_sorted.length - 1], y_sorted[y_sorted.length - 1]];
+
+		const position = start.slice();
+		let zoom = 0.5;
+		function paint() {
+			const min_chunk = [
+				Math.floor(position[0] / 1000),
+				Math.floor(position[1] / 1000)
+			];
+			const max_chunk = [
+				Math.floor((position[0] + canvas.width * (1 / zoom)) / 1000),
+				Math.floor((position[1] + canvas.height * (1 / zoom)) / 1000)
+			];
+
+			for (let y = min_chunk[1]; y <= max_chunk[1]; y++) {
+				for (let x = min_chunk[0]; x <= max_chunk[0]; x++) {
+					get_chunk(x, y).then(img => {
+						context.save();
+						context.scale(zoom, zoom);
+						context.drawImage(img, x * 1000 - position[0], y * 1000 - position[1]);
+						context.restore();
+					});
+				}
+			}
+		}
+		let is_dragging = false;
+		canvas.addEventListener("mousedown", () => {
+			is_dragging = true;
+		});
+		canvas.addEventListener("mouseup", () => {
+			is_dragging = false;
+		});
+		canvas.addEventListener("mouseleave", () => {
+			is_dragging = false;
+		})
+		canvas.addEventListener("mousemove", event => {
+			if (is_dragging) {
+				position[0] -= event.movementX * (1 / zoom);
+				position[1] -= event.movementY * (1 / zoom);
+				position[0] = Math.max(start[0], Math.min(end[0] - canvas.width * (1 / zoom), position[0]));
+				position[1] = Math.max(start[1], Math.min(end[1] - canvas.height * (1 / zoom), position[1]));
+				context.clearRect(0, 0, canvas.width, canvas.height);
+				paint();
+			}
+		});
+		canvas.addEventListener("wheel", event => {
+			let deltaY = event.deltaY;
+			if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) deltaY *= 16;
+
+			const rect = canvas.getBoundingClientRect();
+			const x = event.clientX - rect.left;
+			const y = event.clientY - rect.top;
+
+			const zoomFactor = 1.001 ** -deltaY;
+			const old_zoom = zoom;
+			zoom *= zoomFactor;
+			zoom = Math.max(0.02, zoom);
+
+			// What we do here:
+			// x / old_zoom => "real" (unzoomed) position
+			// x / old_zoom * zoom => position with the new zoom
+			// x / old_zoom * zoom - x => distance (in pixels) between the old and new pos
+			// (x / old_zoom * zoom - x) / zoom => scaled distance
+			position[0] += (x / old_zoom * zoom - x) / zoom;
+			position[1] += (y / old_zoom * zoom - y) / zoom;
+
+			position[0] = Math.max(start[0], Math.min(end[0] - canvas.width * (1 / zoom), position[0]));
+			position[1] = Math.max(start[1], Math.min(end[1] - canvas.height * (1 / zoom), position[1]));
+
+			context.clearRect(0, 0, canvas.width, canvas.height);
+			paint();
+		}, { passive: true });
+
+		window.addEventListener("resize", () => {
+			canvas.width = window.innerWidth;
+			canvas.height = window.innerHeight;
+			paint();
+		});
+		paint();
+	</script>
+</head>
+
+<body>
+	<canvas id="drawing_canvas"></canvas>
+</body>
+
+</html>
