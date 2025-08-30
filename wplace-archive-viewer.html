@@ -13,7 +13,7 @@
 		async function get_chunk(x, y) {
 			const cached = cache[`${x}-${y}`];
 			if (cached === undefined) {
-				cache[`${x}-${y}`] = new Promise((resolve, reject) => {
+				cache[`${x}-${y}`] = new Promise((resolve, _reject) => {
 					const img = new Image();
 					img.addEventListener("load", () => {
 						cache[`${x}-${y}`] = img;
@@ -66,6 +66,9 @@
 			}
 		}
 		let is_dragging = false;
+		let last_touch_pos = null;
+
+		// Mouse events (desktop)
 		canvas.addEventListener("mousedown", () => {
 			is_dragging = true;
 		});
@@ -85,6 +88,40 @@
 				paint();
 			}
 		});
+
+		// Touch events (mobile)
+		canvas.addEventListener("touchstart", event => {
+			event.preventDefault();
+			is_dragging = true;
+			const touch = event.touches[0];
+			last_touch_pos = { x: touch.clientX, y: touch.clientY };
+		});
+
+		canvas.addEventListener("touchend", event => {
+			event.preventDefault();
+			is_dragging = false;
+			last_touch_pos = null;
+		});
+
+		canvas.addEventListener("touchmove", event => {
+			event.preventDefault();
+			if (is_dragging && last_touch_pos && event.touches.length === 1) {
+				const touch = event.touches[0];
+				const movementX = touch.clientX - last_touch_pos.x;
+				const movementY = touch.clientY - last_touch_pos.y;
+
+				position[0] -= movementX * (1 / zoom);
+				position[1] -= movementY * (1 / zoom);
+				position[0] = Math.max(start[0], Math.min(end[0] - canvas.width * (1 / zoom), position[0]));
+				position[1] = Math.max(start[1], Math.min(end[1] - canvas.height * (1 / zoom), position[1]));
+
+				last_touch_pos = { x: touch.clientX, y: touch.clientY };
+
+				context.clearRect(0, 0, canvas.width, canvas.height);
+				paint();
+			}
+		}, { passive: false });
+
 		canvas.addEventListener("wheel", event => {
 			let deltaY = event.deltaY;
 			if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) deltaY *= 16;
